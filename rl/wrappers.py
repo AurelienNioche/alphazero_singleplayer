@@ -9,10 +9,11 @@ import numpy as np
 from scipy.stats import multivariate_normal
 import sklearn.preprocessing
 
+
 class ObservationRewardWrapper(gym.Wrapper):
-    ''' My own base class - allows for both observation and reward modification '''
-    def step(self, action):
-        observation, reward, done, info = self.env.step(action)
+    """ allows for both observation and reward modification """
+    def step(self,  action):
+        observation,  reward, done, info = self.env.step(action)
         return self.observation(observation), self.reward(reward), done, info
 
     def reset(self):
@@ -24,6 +25,7 @@ class ObservationRewardWrapper(gym.Wrapper):
 
     def reward(self, reward):
         return reward
+
 
 def get_name(env):
     while True:
@@ -37,17 +39,19 @@ def get_name(env):
             env = env.env
     return name
 
+
 class NormalizeWrapper(ObservationRewardWrapper):
-    ''' normalizes the input data range '''
+    """ normalizes the input data range """
     def __init__(self, env):
         ObservationRewardWrapper.__init__(self, env)
-        #self.name = get_name(env)    
+        # self.name = get_name(env)
         observation_examples = np.array([env.observation_space.sample() for x in range(10000)])
         self.scaler = sklearn.preprocessing.StandardScaler()
         self.scaler.fit(observation_examples)
         
     def observation(self, observation):
         return self.scaler.transform([observation])[0]
+
 
 class ScaleRewardWrapper(ObservationRewardWrapper):
     
@@ -71,7 +75,8 @@ class ScaleRewardWrapper(ObservationRewardWrapper):
             return reward/250.0
         else:
             return reward
-          
+
+
 class ReparametrizeWrapper(ObservationRewardWrapper):
 
     def __init__(self, env):
@@ -82,7 +87,7 @@ class ReparametrizeWrapper(ObservationRewardWrapper):
         observation, reward, terminal, info = self.env.step(action)
         return self.observation(observation), self.reward(reward,terminal), terminal, info
 
-    def reward(self,r,terminal):
+    def reward(self, r, terminal):
         if 'CartPole' in self.name:
             if terminal:
                 r = -1
@@ -99,6 +104,7 @@ class ReparametrizeWrapper(ObservationRewardWrapper):
             else:
                 r = -0.005
         return r
+
 
 class PILCOWrapper(ObservationRewardWrapper):
 
@@ -123,8 +129,9 @@ class PILCOWrapper(ObservationRewardWrapper):
             target = np.array([0.0,0.0])
         else:
             raise ValueError('no PILCO reward mofication for this game')
-        return 1 - multivariate_normal.pdf(s,mean=target)
-    
+        return 1 - multivariate_normal.pdf(s, mean=target)
+
+
 class ClipRewardWrapper(ObservationRewardWrapper):
     
     def __init__(self, env):
@@ -133,7 +140,8 @@ class ClipRewardWrapper(ObservationRewardWrapper):
     def reward(self, reward):
         """Bin reward to {+1, 0, -1} by its sign."""
         return np.sign(reward)
-    
+
+
 class ScaledObservationWrapper(ObservationRewardWrapper):
     def __init__(self, env):
         ObservationRewardWrapper.__init__(self, env)
