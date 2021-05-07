@@ -68,12 +68,11 @@ class Model(nn.Module):
         return torch.mean(-torch.sum(target * log_pi_hat, dim=-1))
 
     def train_on_example(self, sb, vb, pib):
-        if isinstance(sb, np.ndarray):
-            sb = torch.from_numpy(sb.astype(np.float32))
-        if isinstance(vb, np.ndarray):
-            vb = torch.from_numpy(vb.astype(np.float32))
-        if isinstance(pib, np.ndarray):
-            pib = torch.from_numpy(pib.astype(np.float32))
+
+        sb = torch.from_numpy(sb.astype(np.float32))
+        vb = torch.from_numpy(vb.astype(np.float32))
+        pib = torch.from_numpy(pib.astype(np.float32))
+
         x = self.base_nn(sb)
         v_hat = self.v_hat(x)
         raw_pi_hat = self.pi_hat(x)
@@ -86,16 +85,16 @@ class Model(nn.Module):
         self.optimizer.step()
     
     def predict_v(self, s):
-        if isinstance(s, np.ndarray):
-            s = torch.from_numpy(s.astype(np.float32))
+
+        s = torch.from_numpy(s.astype(np.float32))
         with torch.no_grad():
             x = self.base_nn(s)
             v = self.v_hat(x)
             return v.numpy()
         
     def predict_pi(self, s):
-        if isinstance(s, np.ndarray):
-            s = torch.from_numpy(s.astype(np.float32))
+
+        s = torch.from_numpy(s.astype(np.float32))
         with torch.no_grad():
             x = self.base_nn(s)
             pi = self.softmax(self.pi_hat(x))
@@ -104,7 +103,6 @@ class Model(nn.Module):
 
 # ----- MCTS functions -----
 class Action:
-    ''' Action object '''
     def __init__(self, index, parent_state, Q_init=0.0):
         self.index = index
         self.parent_state = parent_state
@@ -155,7 +153,7 @@ class State:
 
     def evaluate(self):
         """ Bootstrap the state value """
-        self.V = np.squeeze(self.model.predict_v(self.index[None,])) if not self.terminal else np.array(0.0)
+        self.V = np.squeeze(self.model.predict_v(self.index[None,])) # if not self.terminal else np.array(0.0)
 
     def update(self):
         """ Update count on backward pass """
@@ -174,7 +172,7 @@ class MCTS:
         self.na = na
         self.gamma = gamma
     
-    def search(self, n_mcts, c, Env, mcts_env):
+    def search(self, n_mcts, c, env, mcts_env):
         """
         Perform the MCTS search from the root
         """
@@ -186,14 +184,14 @@ class MCTS:
         if self.root.terminal:
             raise(ValueError("Can't do tree search from a terminal state"))
 
-        is_atari = is_atari_game(Env)
+        is_atari = is_atari_game(env)
         if is_atari:
-            snapshot = copy_atari_state(Env) # for Atari: snapshot the root at the beginning     
+            snapshot = copy_atari_state(env) # for Atari: snapshot the root at the beginning
         
         for i in range(n_mcts):     
-            state = self.root # reset to root for new trace
+            state = self.root  # reset to root for new trace
             if not is_atari:
-                mcts_env = copy.deepcopy(Env) # copy original Env to rollout from
+                mcts_env = copy.deepcopy(env) # copy original Env to rollout from
             else:
                 restore_atari_state(mcts_env, snapshot)
             
@@ -208,11 +206,11 @@ class MCTS:
                     break
 
             # Back-up 
-            R = state.V         
+            r = state.V
             while state.parent_action is not None:   # loop back-up until root is reached
-                R = state.r + self.gamma * R 
+                r = state.r + self.gamma * r
                 action = state.parent_action
-                action.update(R)
+                action.update(r)
                 state = action.parent_state
                 state.update()                
     
@@ -274,13 +272,6 @@ class ReplayBuffer:
             if self.insert_index >= self.size:
                 self.insert_index = 0
 
-    def store_from_array(self, *args):
-        for i in range(args[0].shape[0]):
-            entry = []
-            for arg in args:
-                entry.append(arg[i])
-            self.store(entry)
-
     def shuffle(self):
         self.sample_array = np.arange(self.size)
         np.random.shuffle(self.sample_array)
@@ -325,7 +316,9 @@ def train(game, n_ep, n_mcts, max_ep_len, lr, c, gamma, data_size, batch_size,
     mcts_env = make_game(game) if is_atari else None
 
     replay_buffer = ReplayBuffer(max_size=data_size, batch_size=batch_size)
-    model = Model(env=env, lr=lr, n_hidden_layers=n_hidden_layers, n_hidden_units=n_hidden_units)
+    model = Model(env=env, lr=lr,
+                  n_hidden_layers=n_hidden_layers,
+                  n_hidden_units=n_hidden_units)
     t_total = 0 # total steps   
     R_best = -np.Inf
 
@@ -353,7 +346,7 @@ def train(game, n_ep, n_mcts, max_ep_len, lr, c, gamma, data_size, batch_size,
             iterator = range(max_ep_len)
         for _ in iterator:
             # MCTS step
-            mcts.search(n_mcts=n_mcts, c=c, Env=env, mcts_env=mcts_env)  # perform a forward search
+            mcts.search(n_mcts=n_mcts, c=c, env=env, mcts_env=mcts_env)  # perform a forward search
             state, pi, v = mcts.return_results(temp)                     # extract the root output
             replay_buffer.store((state, v, pi))
 
@@ -403,8 +396,8 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=32, help='Minibatch size')
     parser.add_argument('--window', type=int, default=25, help='Smoothing window for visualization')
 
-    parser.add_argument('--n_hidden_layers', type=int, default=2, help='Number of hidden layers in NN')
-    parser.add_argument('--n_hidden_units', type=int, default=128, help='Number of units per hidden layers in NN')
+    parser.add_argument('--n_hidden_layers', type=int, default=1, help='Number of hidden layers in NN')
+    parser.add_argument('--n_hidden_units', type=int, default=64, help='Number of units per hidden layers in NN')
 
     args = parser.parse_args()
     episode_returns, timepoints, a_best, seed_best, R_best = train(
