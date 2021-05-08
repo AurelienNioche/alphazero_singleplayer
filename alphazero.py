@@ -141,7 +141,8 @@ class State:
         # Child actions
         self.na = na
         self.child_actions = [Action(a, parent_state=self, Q_init=self.V) for a in range(na)]
-        self.priors = model.predict_pi(index[None, ]).flatten()
+        with torch.no_grad():
+            self.priors = model.predict_pi(index[None, ]).flatten()
     
     def select(self, c=1.5):
         """ Select one of the child actions based on UCT rule """
@@ -155,7 +156,9 @@ class State:
 
     def evaluate(self):
         """ Bootstrap the state value """
-        self.V = np.squeeze(self.model.predict_v(self.index[None,])) if not self.terminal else np.array(0.0)
+        with torch.no_grad():
+            v_hat = self.model.predict_v(self.index[None, ])
+        self.V = np.squeeze(v_hat) if not self.terminal else np.array(0.0)
 
     def update(self):
         """ Update count on backward pass """
@@ -273,13 +276,6 @@ class ReplayBuffer:
             self.insert_index += 1
             if self.insert_index >= self.size:
                 self.insert_index = 0
-
-    def store_from_array(self, *args):
-        for i in range(args[0].shape[0]):
-            entry = []
-            for arg in args:
-                entry.append(arg[i])
-            self.store(entry)
 
     def shuffle(self):
         self.sample_array = np.arange(self.size)

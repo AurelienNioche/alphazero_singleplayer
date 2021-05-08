@@ -126,7 +126,8 @@ class State:
     State object
     """
 
-    def __init__(self, index, r, terminal, parent_action, na, model):
+    def __init__(self, index, r, terminal, parent_action, na, model,
+                 boostrap_last_state_value):
         ''' Initialize a new state '''
         self.index = index        # state
         self.r = r                # reward upon arriving in this state
@@ -135,11 +136,12 @@ class State:
         self.n = 0
         self.model = model
         
-        self.evaluate()
+        self.evaluate(boostrap_last_state_value)
         # Child actions
         self.na = na
         self.child_actions = [Action(a, parent_state=self, Q_init=self.V) for a in range(na)]
-        self.priors = model.predict_pi(index[None, ]).flatten()
+        with torch.no_grad():
+            self.priors = model.predict_pi(index[None, ]).flatten()
     
     def select(self, c=1.5):
         """ Select one of the child actions based on UCT rule """
@@ -151,9 +153,14 @@ class State:
         winner = np.nanargmax(uct)   # is is possible to have nan here?
         return self.child_actions[winner]
 
-    def evaluate(self):
+    def evaluate(self, boostrap_last_state_value):
         """ Bootstrap the state value """
-        self.V = np.squeeze(self.model.predict_v(self.index[None,])) # if not self.terminal else np.array(0.0)
+
+        if boostrap_last_state_value and self.terminal:
+            self.V = np.array(0.0)
+        else:
+            with torch.no_grad():
+                self.V = np.squeeze(self.model.predict_v(self.index[None, ]))
 
     def update(self):
         """ Update count on backward pass """
@@ -165,20 +172,25 @@ class MCTS:
     MCTS object
     """
 
-    def __init__(self, root, root_index, model, na, gamma):
+    def __init__(self, root, root_index, model, na, gamma,
+                 bootstrap_last_state_value):
         self.root = root
         self.root_index = root_index
         self.model = model
         self.na = na
         self.gamma = gamma
+        self.bootstrap_last_state_value = bootstrap_last_state_value
     
     def search(self, n_mcts, c, env, mcts_env):
         """
         Perform the MCTS search from the root
         """
         if self.root is None:
-            self.root = State(self.root_index, r=0.0, terminal=False,
-                              parent_action=None, na=self.na, model=self.model)  # initialize new root
+            self.root = State(
+                self.root_index, r=0.0, terminal=False,
+                parent_action=None, na=self.na,
+                bootstrap_last_state_value=self.bootstrap_last_state_value,
+                model=self.model)  # initialize new root
         else:
             self.root.parent_action = None # continue from current root
         if self.root.terminal:
@@ -303,15 +315,17 @@ class ReplayBuffer:
 
 def train(game, n_ep, n_mcts, max_ep_len, lr, c, gamma, data_size, batch_size,
           temp, n_hidden_layers, n_hidden_units):
-    ''' Outer training loop '''
+    """ Outer training loop """
 
     episode_returns = []   # storage
     timepoints = []
     # Environments
     if game == "teaching":
         env = TeachingEnv()
+        bootstrap_last_state_value = False
     else:
         env = make_game(game)
+        bootstrap_last_state_value = True
     is_atari = is_atari_game(env)
     mcts_env = make_game(game) if is_atari else None
 
@@ -335,10 +349,12 @@ def train(game, n_ep, n_mcts, max_ep_len, lr, c, gamma, data_size, batch_size,
             mcts_env.reset()
             mcts_env.seed(seed)
 
+        # the object responsible for MCTS searches
         mcts = MCTS(root_index=s, root=None,
                     model=model,
                     na=model.action_dim,
-                    gamma=gamma)   # the object responsible for MCTS searches
+                    gamma=gamma,
+                    bootstrap_last_state_value=bootstrap_last_state_value)
 
         if game == "teaching":
             iterator = tqdm(range(env.t_max))
